@@ -1,0 +1,230 @@
+---
+
+- name: create nexus image stream
+  openshift_v1_image_stream:
+    name: nexus-images
+    namespace: '{{ namespace }}'
+    labels:
+      app: '{{ nexus_app_label }}'
+      service: '{{ nexus_service_label }}'
+  when: include_nexus == true
+
+- name: "create nexus image stream"
+  openshift_v1_image_stream:
+    name: nexus-images
+    namespace: '{{ namespace }}'
+    labels:
+      app: '{{ nexus_app_label }}'
+      service: '{{ nexus_service_label }}'
+  when: include_nexus == true
+
+- name: "create nexus deployment config"
+  openshift_v1_deployment_config:
+    name: nexus
+    namespace: '{{ namespace }}'
+    labels:
+      app: '{{ nexus_app_label }}'
+      service: '{{ nexus_service_label }}'
+    replicas: 1
+    strategy_type: Recreate
+    selector:
+      app: '{{ nexus_app_label }}'
+      service: '{{ nexus_service_label }}'
+    spec_template_metadata_labels:
+      app: '{{ nexus_app_label }}'
+      service: '{{ nexus_service_label }}'
+    containers:
+    - image: '{{ nexus_image }}'
+      name: nexus
+      resources:
+        limits:
+          memory: '{{ nexus_memory_limit }}'
+        requests:
+          memory: '{{ nexus_memory_request }}'
+      ports:
+      - container_port: 8081
+        protocol: TCP
+      termination_message_path: /dev/termination-log
+      volume_mounts:
+      - mount_path: /nexus-data/
+        name: nexus-volume-1
+      liveness_probe:
+        exec:
+          command:
+          - echo
+          - ok
+        failure_threshold: 3
+        initial_delay_seconds: 60
+        period_seconds: 10
+        success_threshold: 1
+        timeout_seconds: 1
+      readiness_probe:
+        http_get:
+          path: /repository/maven-public/
+          port: 8081
+          scheme: HTTP
+        failure_threshold: 3
+        initial_delay_seconds: 60
+        period_seconds: 10
+        success_threshold: 1
+        timeout_seconds: 3
+    volumes:
+    - name: nexus-volume-1
+      persistent_volume_claim:
+        claim_name: nexus3-data-pvc
+    test: false
+    triggers:
+    - type: ConfigChange
+  register: nexus_deployment_config
+  when: include_nexus == true
+
+- name: "create nexus service"
+  k8s_v1_service:
+    name: nexus
+    namespace: '{{ namespace }}'
+    labels:
+      app: '{{ nexus_app_label }}'
+      service: '{{ nexus_service_label }}'
+    selector:
+      app: '{{ nexus_app_label }}'
+      service: '{{ nexus_service_label }}'
+    ports:
+    - name: port-8081
+      port: 8081
+      protocol: TCP
+      target_port: 8081
+    - name: port-5000
+      port: 5000
+      protocol: TCP
+      target_port: 5000
+  register: nexus_service
+  when: include_nexus == true
+
+- name: wait for nexus web port
+  wait_for:
+    port: 8081
+    host: 'nexus.{{ namespace }}.svc'
+    timeout: 3000
+  when: include_nexus == true
+
+- name: create nexus web route
+  openshift_v1_route:
+    name: nexus
+    namespace: '{{ namespace }}'
+    labels:
+      app: '{{ nexus_app_label }}'
+      service: '{{ nexus_service_label }}'
+    spec_port_target_port: port-8081
+    to_name: nexus
+  register: nexus_web_route
+  when: include_nexus == true
+
+- name: copy nexus repository configuration script for redhat repository
+  template:
+    src: /opt/ansible/roles/provision-project/templates/setup-nexus3.sh
+    dest: /tmp/setup_nexus3.sh
+    mode: 0644
+  when: include_nexus == true
+
+- name: configure nexus repositories
+  shell: '/bin/bash -- /tmp/setup_nexus3.sh {{ nexus_admin_user }} {{ nexus_admin_password }} http://{{ nexus_web_route.route.spec.host }}'
+  when: include_nexus == true
+
+- name: create nexus docker route
+  openshift_v1_route:
+    name: nexus-docker
+    namespace: '{{ namespace }}'
+    labels:
+      app: '{{ nexus_app_label }}'
+      service: '{{ nexus_service_label }}'
+    spec_port_target_port: port-5000
+    to_name: nexus
+  register: nexus_docker_route
+  when: include_nexus == true
+
+- name: "create jenkins-slave image stream"
+  openshift_v1_image_stream:
+    name: '{{ jenkins_slave_image_stream }}'
+    namespace: '{{ namespace }}'
+    labels:
+      app: '{{ jenkins_app_label }}'
+      service: '{{ jenkins_service_label }}'
+  when: include_jenkins == true
+
+- name: "create slave pod build config"
+  openshift_v1_build_config:
+    name: jenkins-slave-build-config
+    namespace: '{{ namespace }}'
+    labels:
+      app: '{{ jenkins_app_label }}'
+      service: '{{ jenkins_service_label }}'
+    source_dockerfile: |
+      FROM {{ jenkins_slave_image_base }}:{{ jenkins_slave_image_tag }}
+      USER root
+      RUN yum -y install skopeo && \
+          yum -y clean all
+      USER 1001
+    strategy_type: Docker
+    output_to_kind: ImageStreamTag
+    output_to_namespace: '{{ namespace }}'
+    output_to_name: '{{ jenkins_slave_image_stream }}:{{ jenkins_slave_image_tag }}'
+  when: include_jenkins == true
+
+- name: "build slave pod image"
+  shell: 'oc start-build -n {{ namespace }} jenkins-slave-build-config --follow'
+  when: include_jenkins == true
+
+- name: create jenkins instance
+  shell: "oc new-app jenkins -n {{ namespace }} --param JENKINS_SERVICE_NAME={{ jenkins_app_label }} --param ENABLE_OAUTH=true --param VOLUME_CAPACITY={{ jenkins_volume_request }} --param MEMORY_LIMIT={{ jenkins_master_memory_limit }} -l app={{ jenkins_app_label }},service={{ jenkins_service_label }}"
+  when: include_jenkins == true
+  ignore_errors: True
+
+- name: "create pipeline to jenkins-slave"
+  openshift_v1_build_config:
+    name: jenkins-slave-template-pipeline
+    namespace: '{{ namespace }}'
+    labels:
+      app: '{{ jenkins_app_label }}'
+      service: '{{ jenkins_service_label }}'
+    spec_source_git_uri: https://github.com/TRQ1/pipeline-test.git
+    strategy_jenkins_pipeline_strategy_jenkinsfile_path: Jenkinsfile
+    strategy_type: JenkinsPipeline
+  when: include_jenkins == true
+  ignore_errors: True
+
+- name: create mariadb instance
+  shell: "oc new-app --template=mariadb --param MYSQL_DATABASE={{ mariadb_database }} --param MYSQL_USER={{ mariadb_user }} --param MYSQL_PASSWORD={{ mariadb_password }} --param MYSQL_ROOT_PASSWORD={{ mariadb_root_password }} -n {{ namespace }}"
+  when: include_app == true
+  ignore_errors: True
+
+- name: copy test application template
+  template:
+    src: /opt/ansible/roles/provision-project/templates/gov.json
+    dest: /tmp/gov.json
+    mode: 0644
+  when: include_app == true
+
+- name: create test application template
+  shell: "oc create -f /tmp/gov.json -n {{ namespace }}"
+  when: include_app == true
+
+- name: set egov-blue application
+  shell: "oc new-app --template=egov-bluegreen --param APPLICATION_NAME=egov-blue --param SOURCE_REPOSITORY_URL=https://github.com/TRQ1/pipeline-test.git -n {{ namespace }}"
+  when: include_app == true
+  ignore_errors: True
+
+- name: set egov-green application
+  shell: "oc new-app --template=egov-bluegreen --param APPLICATION_NAME=egov-green --param SOURCE_REPOSITORY_URL=https://github.com/TRQ1/pipeline-test.git -n {{ namespace }}"
+  when: include_app == true
+  ignore_errors: True
+
+- name: copy bluegreen route configuration script for redhat repository
+  template:
+    src: /opt/ansible/roles/provision-project/templates/set-route.sh
+    dest: /tmp/set-route.sh
+    mode: 0644
+  when: include_nexus == true
+
+- name: configure bluegreen route
+  shell: '/bin/bash -- /tmp/set-route.sh'
+  when: include_nexus == true

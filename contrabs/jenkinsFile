@@ -1,0 +1,150 @@
+#!groovy
+
+// Set variable globally to be available in all stages
+def myApp = "egov"
+// Set Maven command to always include Nexus Settings
+def mvnCmd      = "mvn -s ./nexus_settings.xml"
+// Set Development and Production Project Names
+def pocProject = "poc"
+// Set the tag for the production image: version
+def prodTag     = "0.0"
+// Set the Application
+def activeApp = ""
+def destApp = "egov-green"
+def version = ""
+
+// Url
+def regiUrl = "nexus.poc.svc.cluster.local"
+def mvnRelUrl = ""
+def gitRepo = ""
+
+
+podTemplate(
+  label: "maven-dev",
+  cloud: "openshift",
+  inheritFrom: "maven",
+  containers: [
+  containerTemplate(
+      name: "jnlp",
+      image: "docker-registry.default.svc:5000/poc/jenkins-agent-appdev:latest",
+      resourceRequestMemory: "1Gi",
+      resourceLimitMemory: "2Gi"
+    )
+  ]
+){
+  // Define Maven Command. Make sure it points to the correct settings for our
+  // Nexus installation. The file nexus_openshift_settings.xml needs to be in the
+  // Application's name
+node('maven-dev') {
+  stage('Checkout Source') {
+    // your git repository
+     git "${gitRepo}"
+     //checkout scm
+    script {
+      def pom = readMavenPom file: "./pom.xml"
+      version = getVersionFromPom("./pom.xml")
+
+      prodTag = "${version}"
+
+    }
+  }
+
+  // Using Maven build the war file
+  // Do not run tests in this step
+  stage('Build war') {
+    echo "Running Build war"
+  }
+
+  // Using Maven run the unit tests
+  stage('Unit Tests') {
+        echo "Running Unit Tests"
+        try {
+          sh "${mvnCmd} test"
+        } catch(err) {
+          step([$class: 'JUnitResultArchiver', testResults: '**/target/surefire-reports/TEST-*.xml'])
+          if (currentBuild.result == "UNSTABLE") {
+            throw err
+           sh "exit 1"
+          }
+        }
+  }
+
+  // Build the OpenShift Image in OpenShift.
+  stage('Build OpenShift blue Image') {
+      sh "oc start-build egov-blue --follow --git-repository=${gitRepo} -n ${pocProject}"
+      openshift.withCluster() {
+                openshift.withProject("${pocProject}") {
+                  openshift.tag("egov-blue:latest", "egov-blue:${prodTag}")
+      }
+    }
+  }
+  
+    stage('Build OpenShift green Image') {
+      sh "oc start-build egov-green --follow --git-repository=${gitRepo} -n ${pocProject}"
+      openshift.withCluster() {
+                openshift.withProject("${pocProject}") {
+                  openshift.tag("egov-green:latest", "egov-green:${prodTag}")
+      }
+    }
+  }
+
+
+  // Copy Image to Nexus container registry
+  stage('Copy Image to Nexus container registry') {
+    echo "Copy image to Nexus container registry"
+    // TBD: Copy image to Nexus container registry
+     sh "skopeo copy --src-tls-verify=false --dest-tls-verify=false --src-creds openshift:\$(oc whoami -t) --dest-creds admin:admin123 docker://docker-registry.default.svc.cluster.local:5000/${pocProject}/egov-blue:${prodTag} docker://${regiUrl}:5000/egov-blue:${prodTag}"
+    // TBD: Tag the built image with the production tag.
+  }
+
+  stage('Blue/Green Production Deployment') {
+    echo "Blue/Green Deployment"
+    openshift.withCluster() {
+    openshift.withProject("${pocProject}") {
+      activeApp = openshift.selector("route", "egov-bluegreen").object().spec.to.name
+      if (activeApp == "egov-green") {
+        destApp = "egov-blue"
+      }
+      echo "Active Application:      " + activeApp
+      echo "Destination Application: " + destApp
+
+      // Update the Image on the Production Deployment Config
+      def dc = openshift.selector("dc/${destApp}").object()
+      dc.spec.template.spec.containers[0].image="docker-registry.default.svc:5000/${pocProject}/egov-blue:${prodTag}"
+      openshift.apply(dc)
+
+      // Deploy the inactive application.
+      echo "Starting dc rollouting"
+      openshift.selector("dc", "${destApp}").rollout().latest();
+
+      // Wait for application to be deployed
+      echo "dc_prod"
+      def dc_prod = openshift.selector("dc", "${destApp}").object()
+      echo "dc_version"
+      def dc_version = dc_prod.status.latestVersion
+      echo "rc_prod"
+      def rc_prod = openshift.selector("rc", "${destApp}-${dc_version}").object()
+      echo "Waiting for ${destApp} to be ready"
+      while (rc_prod.spec.replicas != rc_prod.status.readyReplicas) {
+        sleep 5
+        rc_prod = openshift.selector("rc", "${destApp}-${dc_version}").object()
+        }
+        }
+      }
+  }
+  }
+}
+// Convenience Functions to read variables from the pom.xml
+// Do not change anything below this line.
+def getVersionFromPom(pom) {
+  def matcher = readFile(pom) =~ '<version>(.+)</version>'
+  matcher ? matcher[0][1] : null
+}
+def getGroupIdFromPom(pom) {
+  def matcher = readFile(pom) =~ '<groupId>(.+)</groupId>'
+  matcher ? matcher[0][1] : null
+}
+def getArtifactIdFromPom(pom) {
+  def matcher = readFile(pom) =~ '<artifactId>(.+)</artifactId>'
+  matcher ? matcher[0][1] : null
+}

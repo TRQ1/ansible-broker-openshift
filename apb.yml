@@ -1,0 +1,119 @@
+version: 1.0
+name: egov-apb
+description: This ABP creates a standard set for CI/CD envrionment in a OpenShift
+bindable: False
+async: optional
+metadata:
+  displayName: Egov (APB)
+plans:
+  - name: default
+    description: Ths plan deploys various build tools for poc envrionment
+    free: True
+    metadata: {}
+    parameters: 
+      - name: include_nexus
+        title: Deploy Nexus?
+        type: boolean
+        required: True
+        default: False
+        display_group: Nexus Configuration
+      - name: nexus_volume_request
+        title: Database Persistent Volume Size Requested
+        type: string
+        required: True
+        default: 4Gi
+        display_group: Nexus Configuration
+      - name: nexus_memory_request
+        title: Memory Requested
+        type: string
+        required: True
+        default: 1Gi
+        display_group: Nexus Configuration
+      - name: nexus_memory_limit
+        title: Memory Limit
+        type: string
+        required: True
+        default: 2Gi
+        display_group: Nexus Configuration
+      - name: nexus_redhat_proxy_repos
+        title: Create Red Hat and JBoss proxy repositories?
+        type: boolean
+        required: True
+        default: True
+      - name: nexus_maven_proxy_repos
+        title: Create Maven Public proxy repository?
+        type: boolean
+        required: True
+        default: True
+      - name: nexus_npm_repo
+        title: Create Node.js NPM repository?
+        type: boolean
+        required: True
+        default: True
+      - name: nexus_docker_repos
+        title: Create Docker repository?
+        type: boolean
+        required: True
+        default: True
+      - name: nexus_maven_release_repos
+        title: Create Maven release artifact repository?
+        type: boolean
+        required: True
+        default: True
+      - name: nexus_maven_snapshot_repos
+        title: Create Maven snapshot artifact repository?
+        type: boolean
+        required: True
+        default: True
+
+      - name: include_jenkins
+        title: Deploy Jenkins?
+        type: boolean
+        required: True
+        default: True
+        display_group: Jenkins Configuration
+      - name: jenkins_volume_request
+        title: Database Persistent Volume Size Requested
+        type: string
+        required: True
+        default: 4Gi
+        display_group: Jenkins Configuration
+      - name: jenkins_master_memory_limit
+        title: Master Memory Limit
+        type: string
+        required: True
+        default: 2Gi
+        display_group: Jenkins Configuration
+      - name: jenkins_slave_memory_limit
+        title: Slave Memory Limit
+        type: string
+        required: True
+        default: 2Gi
+        display_group: Jenkins Configuration
+      
+      - name: include_app
+        title: Deploy JBoss EAP with a test Application?
+        type: boolean
+        required: True
+        default: True
+        display_group: JBoss EAP Configuration
+      - name: mariadb_persistent_volume
+        title: Create persistent voulme
+        type: string
+        required: True
+        default: 10Gi
+        display_group: JBoss EAP Configuration
+      - name: mariadb_db_user
+        title: Set database's username
+        type: string
+        required: True
+        default: mariadb
+        display_group: JBoss EAP Configuration
+      - name: mariadb_db_password
+        title: Set database's password 
+        type: string
+        required: True
+        default: password
+        display_group: JBoss EAP Configuration
+alpha:
+  dashboard_redirect: True

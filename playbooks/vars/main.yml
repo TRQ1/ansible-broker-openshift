@@ -1,0 +1,34 @@
+---
+state_map:
+  provision: present
+  update: present
+  deprovision: absent
+state: "{{ state_map[apb_action] }}"
+
+nexus_app_label: nexus
+nexus_service_label: nexus
+nexus_image: docker.io/sonatype/nexus3:latest
+nexus_admin_user: admin
+nexus_admin_password: admin123
+
+jenkins_app_label: jenkins
+jenkins_service_label: jenkins
+jenkins_slave_image_tag: latest
+jenkins_slave_image_base: docker.io/openshift/jenkins-slave-maven-centos7
+jenkins_slave_image_stream: jenkins-agent-appdev
+jenkins_slave_node_label: maven-appdev
+
+mariadb_app_label: mariadb
+mariadb_service_label: mariadb
+mariadb_port: 3306
+mariadb_database: opennaru
+mariadb_name: opennaru
+mariadb_root_password: opennaru
+mariadb_user: opennaru
+mariadb_password: opennaru
+mariadb_volume_request: 10Gi
+
+jboss_app_name: egov
+jboss_application_name: egov
+jboss_application_group_name: egov-bluegreen
+jboss_application_configmap_name: egov-config

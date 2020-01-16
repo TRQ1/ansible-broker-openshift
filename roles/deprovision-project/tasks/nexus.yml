@@ -1,0 +1,36 @@
+
+- name: delete nexus route
+  openshift_v1_route:
+    name: nexus
+    namespace: '{{ namespace }}'
+    state: absent
+
+- name: delete nexus docker route
+  openshift_v1_route:
+    name: nexus-docker
+    namespace: '{{ namespace }}'
+    state: absent
+
+- name: delete nexus service
+  k8s_v1_service:
+    name: nexus-svc
+    namespace: '{{ namespace }}'
+    state: absent
+
+- name: delete nexus deployment config
+  openshift_v1_deployment_config:
+    name: nexus
+    namespace: '{{ namespace }}'
+    state: absent
+
+- name: delete nexus data pvc
+  k8s_v1_persistent_volume_claim:
+    name: nexus-data
+    namespace: '{{ namespace }}'
+    state: absent
+
+- name: delete nexus image stream
+  openshift_v1_image_stream:
+    name: nexus-images
+    namespace: '{{ namespace }}'
+    state: absent

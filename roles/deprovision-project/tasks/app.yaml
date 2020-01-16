@@ -1,0 +1,15 @@
+
+- name: delete mariadb instance
+  shell: "oc delete -n {{ namespace }} all -l app={{ jenkins_app_label }}"
+
+- name: delete jenkins pvc
+  shell: "oc delete -n {{ namespace }} pvc -l app={{ jenkins_app_label }}"
+
+- name: delete jenkins configmap
+  shell: "oc delete -n {{ namespace }} configmap -l app={{ jenkins_app_label }}"
+
+- name: delete jenkins rolebinding
+  shell: "oc delete -n {{ namespace }} rolebinding {{ jenkins_app_label }}_edit"
+
+- name: delete jenkins serviceaccount
+  shell: "oc delete -n {{ namespace }} serviceaccount {{ jenkins_app_label }}"
